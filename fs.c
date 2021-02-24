@@ -27,7 +27,8 @@ struct fileEntry{
 
 struct superBlock* mounted; 
 struct fileEntry* root;		    //root is an array of file structs of size 128	
-int16_t* fatBlock;
+//uint16_t* fatBlock;
+uint16_t* fatBuf;
 int openFile = 0;
 
 int fs_mount(const char *diskname)
@@ -56,13 +57,13 @@ int fs_mount(const char *diskname)
 		return -1;
 	}
 
-	fatBlock = (int16_t*)malloc(sizeof(int16_t) * 4096 * mounted->fatBlockAmt);
+	//fatBlock = (int16_t*)malloc(sizeof(int16_t) * 4096 * mounted->fatBlockAmt);
 	//fatBlock[0] = -1;
-	for(int i = 1; i <= mounted->fatBlockAmt; i++) {
-		block_read(i, &fatBlock[i]);
+	//for(int i = 1; i <= mounted->fatBlockAmt; i++) {
+		//block_read(i, &fatBlock[i]);
 		//printf("Index: %d  FAT: %d\n", i,fatBlock[i]);
 
-	}
+	//}
 	openFile = 1;
 
 	return 0;
@@ -73,7 +74,6 @@ int fs_umount(void)
 {	 	
 	free(mounted);
 	free(root);
-	free(fatBlock);
 	
 	block_disk_close();
 	openFile = 1;	
@@ -91,15 +91,28 @@ int fs_info(void)
  		}
   	}
 	int fatFree = mounted->dataBlockAmt;
-	
+	int count = 0;
+	fatBuf = (uint16_t*)malloc(sizeof(uint16_t) * 2048 * mounted->fatBlockAmt);
 	for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
-		if (fatBlock[i] != 0) {
-			printf("Index: %d , FAT: %d\n", i, fatBlock[i]);
-			fatFree--;
+		block_read(1 + i, fatBuf);
+		for (int j = 0; j < 2048; j++) 
+		{
+      			count++;
+      			//printf("%d\n",fatBuf[j]);
+      			if (fatBuf[j] != 0) 
+			{
+        			fatFree--;
+      			}
+			if (count == mounted->dataBlockAmt) 
+			{
+        			break;
+     			}
 		}
-		printf("Index: %d , FAT: %d\n", i, fatBlock[i]);
+		printf("Index: %d , FAT: %d\n", i, fatBuf[i]);
 		
 	}	
+
+	free(fatBuf);
 
 	printf("FS Info:\n");
 	printf("total_blk_count=%d\n", mounted->totalBlocks);
