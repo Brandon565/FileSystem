@@ -25,6 +25,12 @@ struct fileEntry{
 	int8_t padding[10];
 };
 
+struct fileDescript {
+	char* name;
+	int offset;
+};
+
+struct fileDescript* openFiles;
 struct superBlock* mounted;
 struct fileEntry* root;		    //root is an array of file structs of size 128
 //uint16_t* fatBlock;
@@ -44,8 +50,11 @@ int fs_mount(const char *diskname)
 	mounted = (struct superBlock*)malloc(sizeof(struct superBlock));
 	root = (struct fileEntry*)malloc(128 * sizeof(struct fileEntry));
 
+
 	block_read(0, mounted);
 	mounted->signature[8] = '\0';
+
+	block_read(mounted->rootDirectory, root);
 
 	if(strcmp(mounted->signature, checkSig) != 0){
 		printf("Wrong Signature\n");
@@ -88,32 +97,29 @@ int fs_info(void)
 	for (int i = 0; i < 128; i++) {
 		if ((int)root[i].fileName[0] != 0) {
 			rdirFree--;
+			printf("File found at spot: %d\n", i);
  		}
-  	}
+  }
 	int fatFree = mounted->dataBlockAmt;
 	int count = 0;
 	fatBuf = (uint16_t*)malloc(sizeof(uint16_t) * 2048);
-	for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
+	for (int i = 0; i < 1 + floor((mounted->dataBlockAmt-1)/2048); i++) {
 		block_read(1 + i, fatBuf);
 		for (int j = 0; j < 2048; j++)
 		{
-      			count++;
-      			//printf("%d\n",fatBuf[j]);
-      			if (fatBuf[j] != 0)
-			{
-        			fatFree--;
-      			}
-			if (count == mounted->dataBlockAmt)
-			{
-        			break;
-     			}
-		}
-		if (i == 0) {
-			for (int k = 0; k < 20; k++) {
-				printf("FAT: %d\n", fatBuf[k]);
+			count++;
+			//printf("%d\n",fatBuf[j]);
+			if (fatBuf[j] != 0) {
+  			fatFree--;
+				printf("FAT: %d, I: %d, J: %d\n", fatBuf[j], i, j);
 			}
+			if (count == mounted->dataBlockAmt) {
+        			break;
+ 			}
 		}
-		printf("Index: %d , FAT: %d\n", fatBuf[k]);
+		/*for (int k = 0; k < 2048; k++) {
+			printf("FAT: %d, ", fatBuf[k]);
+		}*/
 
 	}
 
@@ -145,13 +151,14 @@ int fs_create(const char *filename)
 
   int count = 0;
   uint16_t * fatBuf = (uint16_t* )malloc(2048* sizeof(uint16_t));
-  for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
+  for (int i = 0; i < 1 + floor((mounted->dataBlockAmt-1)/2048); i++) {
     block_read(1 + i, fatBuf);
     for (int j = 0; j < 2048; j++) {
       count++;
       if (fatBuf[j] == 0) {
         fatBuf[j] = 65535;
         block_write(1 + i, fatBuf);
+				printf("writing to block: %d\n", 1+i);
         root[rootIndex].dataBlockBegin = i * 2048 + j;
         i = 10;
         break;
@@ -163,6 +170,9 @@ int fs_create(const char *filename)
     }
   }
   root[rootIndex].fileSize = 0;
+
+	block_write(mounted->rootDirectory, root);
+	printf("writing to block2: %d\n", mounted->rootDirectory);
 
   return 0;
 }
@@ -182,7 +192,7 @@ int fs_delete(const char *filename)
 
   int count = 0;
   uint16_t * fatBuf = (uint16_t* )malloc(2048* sizeof(uint16_t));
-  for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
+  for (int i = 0; i < 1 + floor((mounted->dataBlockAmt-1)/2048); i++) {
     block_read(1 + i, fatBuf);
     for (int j = 0; j < 2048; j++) {
       if (count == root[rootIndex].dataBlockBegin) {
@@ -211,6 +221,7 @@ int fs_delete(const char *filename)
     }
   }
 
+	block_write(mounted->rootDirectory, root);
   return 0;
 }
 
@@ -224,7 +235,7 @@ int fs_ls(void)
 
   for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
     if ((int)root[i].fileName[0] != 0) {
-      printf("Filename: %s, Filesize: %d", root[i].fileName, root[i].fileSize);
+      printf("Filename: %s, Filesize: %d, StartI: %d\n", root[i].fileName, root[i].fileSize, root[i].dataBlockBegin);
       break;
     }
   }
