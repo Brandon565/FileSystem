@@ -8,7 +8,10 @@
 #include "disk.h"
 #include "fs.h"
 
-struct superBlock {
+#define FAT_EOC 65535
+#define FAT_MAX_SIZE 2048
+
+struct __attribute__ ((packed)) superBlock {
 	char signature[8];
 	int16_t totalBlocks;
 	int16_t rootDirectory;
@@ -18,24 +21,25 @@ struct superBlock {
 	int8_t padding[4079];
 };
 
-struct fileEntry{
+struct __attribute__ ((packed)) fileEntry {
 	char fileName[16];
 	int32_t fileSize;
-	int16_t dataBlockBegin;
+	int16_t dataBlockBegin;		//first fat block of the fat chain 
 	int8_t padding[10];
 };
 
-struct fileDescript{
+struct __attribute__ ((packed)) fileDescript {
 	int offset;
 	char* name;
 	int32_t fileSize;
+	int16_t dataBlockBegin;
 
 };
+
 
 
 struct superBlock* mounted;
 struct fileEntry* root;		    //root is an array of file structs of size 128
-//uint16_t* fatBlock;
 uint16_t* fatBuf;
 struct fileDescript* openFiles;
 
@@ -69,13 +73,19 @@ int fs_mount(const char *diskname)
 		return -1;
 	}
 
-	//fatBlock = (int16_t*)malloc(sizeof(int16_t) * 4096 * mounted->fatBlockAmt);
-	//fatBlock[0] = -1;
-	//for(int i = 1; i <= mounted->fatBlockAmt; i++) {
-		//block_read(i, &fatBlock[i]);
-		//printf("Index: %d  FAT: %d\n", i,fatBlock[i]);
+	int c = 0;
+	fatBuf = (uint16_t*)malloc(sizeof(uint16_t) * 2048);
+	for (int i = 0; i < 1 + floor((mounted->dataBlockAmt-1)/2048); i++) {
+		block_read(1 + i, fatBuf);
+		for (int j = 0; j < 2048; j++)
+		{
+			c++;
+			if (c == mounted->dataBlockAmt) {
+        			break;
+ 			}
+		}
+	}
 
-	//}
 	openFile = 1;
 
 	return 0;
@@ -102,33 +112,29 @@ int fs_info(void)
 	for (int i = 0; i < 128; i++) {
 		if ((int)root[i].fileName[0] != 0) {
 			rdirFree--;
+			printf("File found at spot: %d\n", i);
  		}
-  	}
+  }
 	int fatFree = mounted->dataBlockAmt;
 	int count = 0;
 	fatBuf = (uint16_t*)malloc(sizeof(uint16_t) * 2048);
-	for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
+	for (int i = 0; i < 1 + floor((mounted->dataBlockAmt-1)/2048); i++) {
 		block_read(1 + i, fatBuf);
 		for (int j = 0; j < 2048; j++)
 		{
-      			count++;
-      			//printf("%d\n",fatBuf[j]);
-      			if (fatBuf[j] != 0)
-			{
-        			fatFree--;
-      			}
-			if (count == mounted->dataBlockAmt)
-			{
-        			break;
-     			}
-		}
-		if (i == 0) {
-			int k;
-			for (k = 0; k < 20; k++) {
-				printf("FAT: %d\n", fatBuf[k]);
+			count++;
+			//printf("%d\n",fatBuf[j]);
+			if (fatBuf[j] != 0) {
+  			fatFree--;
+				printf("FAT: %d, I: %d, J: %d\n", fatBuf[j], i, j);
 			}
+			if (count == mounted->dataBlockAmt) {
+        			break;
+ 			}
 		}
-		//printf("Index: %d , FAT: %d\n", fatBuf[k]);
+		/*for (int k = 0; k < 2048; k++) {
+			printf("FAT: %d, ", fatBuf[k]);
+		}*/
 
 	}
 
@@ -146,39 +152,41 @@ int fs_info(void)
 	return -1;
 }
 
-
 int fs_create(const char *filename)
 {
 	int rootIndex = -1;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if((int)root[i].fileName[0] == 0) {
+		if ((int)root[i].fileName[0] == 0) {
 			rootIndex = i;
 			strcpy(root[i].fileName, filename);
-      			break;
+			break;
     		}
-  	}
+	}
 
 	int count = 0;
-	uint16_t * fatBuf = (uint16_t* )malloc(2048* sizeof(uint16_t));
-	for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/2048); i++) {
-		block_read(1 + i, fatBuf);
-		for (int j = 0; j < 2048; j++) {
-			count++;
-			if (fatBuf[j] == 0) {
-        			fatBuf[j] = 65535;
-        			block_write(1 + i, fatBuf);
-        			root[rootIndex].dataBlockBegin = i * 2048 + j;
-        			i = 10;
-        			break;
-      			}
-      			if (count == mounted->dataBlockAmt) {
-        			printf("we ran out of spots\n");
-        			break;
-      			}
-    		}
+  	uint16_t * fatBuf = (uint16_t* )malloc(2048* sizeof(uint16_t));
+  	for (int i = 0; i < ceil(mounted->dataBlockAmt/2048); i++) {
+    		block_read(1 + i, fatBuf);
+    			for (int j = 0; j < 2048; j++) {
+      				count++;
+      				if (fatBuf[j] == 0) {
+        				fatBuf[j] = 65535;
+        				block_write(1 + i, fatBuf);
+					printf("writing to block: %d\n", 1+i);
+        				root[rootIndex].dataBlockBegin = i * 2048 + j;
+        				i = 10;
+        				break;
+      				}
+      				if (count == mounted->dataBlockAmt) {
+        				printf("we ran out of spots\n");
+        				break;
+      				}
+    			}
   	}
   	root[rootIndex].fileSize = 0;
+	
 	block_write(mounted->rootDirectory, root);
+	printf("writing to block2: %d\n", mounted->rootDirectory);
 
   	return 0;
 }
@@ -227,7 +235,8 @@ int fs_delete(const char *filename)
     		}
   	}
 	
-	//block_write(mounted->rootDirectory, root);
+	block_write(mounted->rootDirectory, root);
+
   	return 0;
 }
 
@@ -294,6 +303,7 @@ int fs_open(const char *filename)
 			openFiles[fdVal].name = root[i].fileName;	//name added to openFiles, indexed by fileDescriptor
 			openFiles[fdVal].offset = 0;			//offset set to start of file
 			openFiles[fdVal].fileSize = root[i].fileSize;
+			openFiles[fdVal].dataBlockBegin = root[i].dataBlockBegin;	
 			break;
 		}
 		fdVal++;
@@ -344,15 +354,130 @@ int fs_lseek(int fd, size_t offset)
 	return 0;
 }
 
+//Helper Functions
+//1. Returns index based on offset
+//2. Allocates new data block and link it to chain (first-fit strategy)
+/*
+
+// return index next available data block
+int find_fat_block()
+{
+	int count = 0;
+	uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE* sizeof(uint16_t));
+	for (int i = 0; i < ceil(mounted->dataBlockAmt/FAT_MAX_SIZE); i++) {
+ 		block_read(1 + i, fatBuf);
+		for (int j = 0; j < FAT_MAX_SIZE; j++) 
+		{
+			count++;
+			if (fatBuf[j] == 0) {
+ 				return  i * FAT_MAX_SIZE + j;
+			}
+			if (count == mounted->dataBlockAmt) {
+				printf("we ran out of spots\n");
+				return -1;
+			}
+		}
+   	}
+}
+*/
+
+// return the index of data block where offset of @fd is
+int offsetBlock(int fd) {
+	// find start data block for file
+
+	int prevBlock = -1;
+	
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (!strcmp(openFiles[fd].name, root[i].fileName)) {
+			prevBlock = root[i].dataBlockBegin;
+			break;
+		}
+	}
+	
+
+	if (prevBlock == FAT_EOC) {
+		return -1;
+	}
+
+	int count = 0;
+
+	uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE * sizeof(uint16_t));
+	block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+	int nextBlock = fatBuf[prevBlock % FAT_MAX_SIZE];
+	count += 4096;
+	fflush(stdout);
+	
+	while(count < openFiles[fd].offset) 
+	{
+		block_read(1 + floor(nextBlock/FAT_MAX_SIZE), fatBuf);
+		prevBlock = nextBlock;
+		nextBlock = fatBuf[nextBlock%FAT_MAX_SIZE];
+		count += 4096;
+	}
+
+	return prevBlock;
+
+}
+
 
 /*
 int fs_write(int fd, void *buf, size_t count)
 {
 	return 0;
 }
+*/
 
 int fs_read(int fd, void *buf, size_t count)
 {
-	return 0;
+	if(openFiles == NULL || fd > numberOpenFiles || openFiles[fd].name == NULL)
+		return -1;
+
+	int block = 4096;
+	int blockMult;
+
+	int blockCount = 1 +floor(count/block);   
+  	printf("BLOCK COUNT: %d\n", blockCount);
+	
+	char* bounce = (char*)malloc(block * sizeof(char) * blockCount *blockCount );		  //temporary bounce buffer to store 
+	int initOffset = openFiles[fd].offset;
+	//int currentBlock = openFiles[fd].dataBlockBegin;
+	printf("FILE NAME: %s \n", openFiles[fd].name);
+	
+	int currentBlock = offsetBlock(fd); 
+	while(initOffset > block) 
+	{
+		initOffset -= block;
+	}
+	printf("Current Block: %d\n", currentBlock);
+	printf("Offset Location: %d\n", initOffset);
+	
+	int blockNum;		//set block number to the starting block to read
+	int bounceBuf = 0; 
+	int endLoop = currentBlock + blockCount + 1;
+	for(blockNum = currentBlock; blockNum < endLoop ; blockNum++)
+	{
+		printf("Index: %d | ", blockNum);
+		printf("END: %d | ", endLoop);
+		printf("Current Block: %d | ", currentBlock);
+		printf("Bounce Buf: %d\n", bounceBuf);
+
+		blockMult = block * bounceBuf; 		//track number of bytes being read
+		block_read(blockNum + mounted->dataBlock , bounce + blockMult);	
+		currentBlock = fatBuf[currentBlock];
+		bounceBuf++;	
+	}
+	
+	//All of blocks within the range are read to bounce buffer
+	//printf("BUFFER: %s\n", bounce);
+
+	memcpy(buf, bounce + initOffset, count);
+
+	//printf("buf: %s\n", (char*)buf);
+	
+	int readLength = strlen(buf);	
+	openFiles[fd].offset += readLength;
+
+	printf("OFFSET: %d\n", initOffset);
+	return readLength;
 }
-*/
+
