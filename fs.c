@@ -10,6 +10,7 @@
 
 #define FAT_EOC 65535
 #define FAT_MAX_SIZE 2048
+#define BLOCK_MAX_BYTES 4096
 
 struct __attribute__ ((packed)) superBlock {
 	char signature[8];
@@ -199,7 +200,6 @@ int fs_delete(const char *filename)
   }
 
 	if (root[rootIndex].dataBlockBegin == FAT_EOC) {
-		root[rootIndex].dataBlockBegin = 0;
 		block_write(mounted->rootDirectory, root);
 		return 0;
 	}
@@ -221,7 +221,7 @@ int fs_delete(const char *filename)
         } else {
           fatBuf[j] = 0;
           block_write(1 + i, fatBuf);
-          root[rootIndex].dataBlockBegin = 0;
+          root[rootIndex].dataBlockBegin = FAT_EOC;
           i = 10;
           break;
         }
@@ -345,15 +345,17 @@ int fs_lseek(int fd, size_t offset)
 // return the index of data block where offset of @fd is
 int offsetBlock(int fd) {
 	// find start data block for file
-	int prevBlock = -1;
+	uint16_t prevBlock = 0;
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (!strcmp(openFiles[fd].name, root[i].fileName)) {
 			prevBlock = root[i].dataBlockBegin;
+			printf("data block begin: %d\n", root[i].dataBlockBegin);
 			break;
 		}
 	}
 
-	if (prevBlock == FAT_EOC) {
+	if (prevBlock == FAT_EOC || prevBlock == 0) {
+		printf("activated the if we dont want\n");
 		return -1;
 	}
 
@@ -398,22 +400,102 @@ int find_fat_block()
 
 	return -1;
 }
-/*
+
 int fs_write(int fd, void *buf, size_t count)
 {
-	int bytesWrote = 0;
-	if (offsetBlock(fd) == -1) {
+	printf("at the very begin\n");
+	// error handling
+	if (buf == NULL || openFile == 0) {
+		return -1;
+	}
 
-		int freeFat = find_fat_block();
-		if (freeFat == -1) {
+	int rootIndex = -1;
+  for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+    if (!strcmp(root[i].fileName, openFiles[fd].name)) {
+      rootIndex = i;
+      break;
+    }
+  }
+
+	uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE * sizeof(uint16_t));
+	int prevBlock = root[rootIndex].dataBlockBegin;
+	block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+	int nextBlock = fatBuf[prevBlock%FAT_MAX_SIZE];
+
+	int bytesWrote = 0;
+	int currBlock = offsetBlock(fd);
+
+	printf("currBlock: %d, offset: %d\n", currBlock, openFiles[fd].offset);
+
+	// if there is no data block assigned
+	if (currBlock == -1) {
+		currBlock = find_fat_block();
+		// if there are no free fat spots, cannot write
+		if (currBlock == -1) {
 			return bytesWrote;
 		}
 
+		while(fatBuf[prevBlock%FAT_MAX_SIZE] != 0 && fatBuf[prevBlock%FAT_MAX_SIZE] != FAT_EOC) {
+			block_read(1 + floor(nextBlock/FAT_MAX_SIZE), fatBuf);
+			prevBlock = nextBlock;
+			nextBlock = fatBuf[nextBlock%FAT_MAX_SIZE];
+		}
+		fatBuf[prevBlock%FAT_MAX_SIZE] = currBlock;
+		block_write(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+		prevBlock = currBlock;
+		block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
 
+		if (root[rootIndex].dataBlockBegin == FAT_EOC) {
+			root[rootIndex].dataBlockBegin = currBlock;
+			block_write(mounted->rootDirectory, root);
+		}
 	}
-	return 0;
-}
 
+	int currOffset = openFiles[fd].offset % BLOCK_MAX_BYTES;
+	uint8_t * blockBuf = (uint8_t* )malloc(BLOCK_MAX_BYTES* sizeof(uint8_t));
+
+	while (bytesWrote < (int)count) {
+		block_read(currBlock + mounted->dataBlock, blockBuf);
+
+		// if we can write the entirety of the remaining block
+		if ((int) count >= bytesWrote + BLOCK_MAX_BYTES - currOffset) {
+			memcpy(blockBuf + currOffset, buf + bytesWrote, BLOCK_MAX_BYTES - currOffset);
+			bytesWrote += BLOCK_MAX_BYTES - currOffset;
+			openFiles[fd].offset += BLOCK_MAX_BYTES - currOffset;
+		} else {
+			memcpy(blockBuf + currOffset, buf + bytesWrote, count - bytesWrote);
+			bytesWrote += count - bytesWrote;
+			openFiles[fd].offset += count - bytesWrote;
+		}
+
+		block_write(currBlock + mounted->dataBlock, blockBuf);
+
+		currBlock = offsetBlock(fd);
+		// if there is no data block assigned
+		if (currBlock == -1 && bytesWrote < (int)count) {
+			currBlock = find_fat_block();
+			// if there are no free fat spots, cannot write
+			if (currBlock == -1) {
+				root[rootIndex].fileSize += bytesWrote;
+				block_write(mounted->rootDirectory, root);
+				openFiles[fd].fileSize += bytesWrote;
+				return bytesWrote;
+			}
+
+			fatBuf[prevBlock%FAT_MAX_SIZE] = currBlock;
+			block_write(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+			prevBlock = currBlock;
+			block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+		}
+		currOffset = 0;
+	}
+
+	root[rootIndex].fileSize += bytesWrote;
+	block_write(mounted->rootDirectory, root);
+	openFiles[fd].fileSize += bytesWrote;
+	return bytesWrote;
+}
+/*
 int fs_read(int fd, void *buf, size_t count)
 {
 	return 0;
