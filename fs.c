@@ -111,6 +111,7 @@ int fs_info(void)
 		if ((int)root[i].fileName[0] != 0) {
 			rdirFree--;
 			printf("File found at spot: %d\n", i);
+			printf("file start: %d\n", root[i].dataBlockBegin);
  		}
   }
 	int fatFree = mounted->dataBlockAmt;
@@ -208,6 +209,8 @@ int fs_delete(const char *filename)
 		block_write(mounted->rootDirectory, root);
 		return 0;
 	}
+
+	printf("here in delete\n");
 
   int count = 0;
   uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE* sizeof(uint16_t));
@@ -443,22 +446,26 @@ int fs_write(int fd, void *buf, size_t count)
 			return bytesWrote;
 		}
 
-		block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
-		int nextBlock = fatBuf[prevBlock%FAT_MAX_SIZE];
-		while(fatBuf[prevBlock%FAT_MAX_SIZE] != 0 && fatBuf[prevBlock%FAT_MAX_SIZE] != FAT_EOC) {
-			block_read(1 + floor(nextBlock/FAT_MAX_SIZE), fatBuf);
-			prevBlock = nextBlock;
-			nextBlock = fatBuf[nextBlock%FAT_MAX_SIZE];
-		}
-		fatBuf[prevBlock%FAT_MAX_SIZE] = currBlock;
-		block_write(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
-		prevBlock = currBlock;
-		block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
-
 		if (root[rootIndex].dataBlockBegin == FAT_EOC) {
 			root[rootIndex].dataBlockBegin = currBlock;
 			block_write(mounted->rootDirectory, root);
+		} else {
+			printf("prev: %d, curr: %d\n", prevBlock%FAT_MAX_SIZE, currBlock);
+			block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+			int nextBlock = fatBuf[prevBlock%FAT_MAX_SIZE];
+			while(fatBuf[prevBlock%FAT_MAX_SIZE] != 0 && fatBuf[prevBlock%FAT_MAX_SIZE] != FAT_EOC) {
+				block_read(1 + floor(nextBlock/FAT_MAX_SIZE), fatBuf);
+				prevBlock = nextBlock;
+				nextBlock = fatBuf[nextBlock%FAT_MAX_SIZE];
+				printf("dont print this out\n");
+			}
+			fatBuf[prevBlock%FAT_MAX_SIZE] = currBlock;
+			printf("prev: %d, curr: %d\n", prevBlock%FAT_MAX_SIZE, currBlock);
+			block_write(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
 		}
+		prevBlock = currBlock;
+		block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
+
 	}
 
 	int currOffset = openFiles[fd].offset % BLOCK_MAX_BYTES;
@@ -529,7 +536,7 @@ int fs_read(int fd, void *buf, size_t count)
 	printf("FILE NAME: %s \n", openFiles[fd].name);
 
 	int currentBlock = offsetBlock(fd);
-	while(initOffset > block)
+	while(initOffset >= block)
 	{
 		initOffset -= block;
 	}
