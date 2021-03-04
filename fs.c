@@ -150,90 +150,93 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
-  int rootIndex = -1;
-  for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-    if ((int)root[i].fileName[0] == 0) {
-      rootIndex = i;
-      strcpy(root[i].fileName, filename);
-      break;
-    }
-  }
+	int rootIndex = -1;
+  	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+    		if ((int)root[i].fileName[0] == 0) {
+      			rootIndex = i;
+      			strcpy(root[i].fileName, filename);
+      			break;
+    		}
+ 	}
 
 	root[rootIndex].dataBlockBegin = FAT_EOC;
-  root[rootIndex].fileSize = 0;
-
+	root[rootIndex].fileSize = 0;
+	printf("\nDATA: %d\n", root[0].dataBlockBegin );
 	block_write(mounted->rootDirectory, root);
 
-  return 0;
+  	return 0;
 }
 
 int fs_delete(const char *filename)
 {
 
-  int rootIndex = -1;
-  for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-    if (!strcmp(root[i].fileName,filename)) {
-      rootIndex = i;
-      root[i].fileName[0] = '\0';
-      root[i].fileSize = 0;
-      break;
-    }
-  }
+	int rootIndex = -1;
+  	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+    		if (!strcmp(root[i].fileName,filename)) {
+      			rootIndex = i;
+      			root[i].fileName[0] = '\0';
+      			root[i].fileSize = 0;
+      			break;
+    		}
+  	}
 
 	if (root[rootIndex].dataBlockBegin == FAT_EOC) {
 		block_write(mounted->rootDirectory, root);
 		return 0;
 	}
 
-  int count = 0;
-  uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE* sizeof(uint16_t));
-  for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/FAT_MAX_SIZE); i++) {
-    block_read(1 + i, fatBuf);
-    for (int j = 0; j < FAT_MAX_SIZE; j++) {
-      if (count == root[rootIndex].dataBlockBegin) {
-        if (fatBuf[j] != FAT_EOC) {
-          root[rootIndex].dataBlockBegin = fatBuf[j];
-          fatBuf[j] = 0;
-          block_write(1 + i, fatBuf);
-          count = 0;
-          i = 0;
-          j = 0;
-          break;
-        } else {
-          fatBuf[j] = 0;
-          block_write(1 + i, fatBuf);
-          root[rootIndex].dataBlockBegin = FAT_EOC;
-          i = 10;
-          break;
-        }
-      }
+  	int count = 0;
+  	uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE* sizeof(uint16_t));
+  	for (int i = 0; i < 1 + floor(mounted->dataBlockAmt/FAT_MAX_SIZE); i++) {
+    		block_read(1 + i, fatBuf);
+    		for (int j = 0; j < FAT_MAX_SIZE; j++) {
+      			if (count == root[rootIndex].dataBlockBegin) {
+        			if (fatBuf[j] != FAT_EOC) {
+        				root[rootIndex].dataBlockBegin = fatBuf[j];
+        				fatBuf[j] = 0;
+        				block_write(1 + i, fatBuf);
+        				count = 0;
+        				i = 0;
+        				j = 0;
+        				break;
+        			} else {
+          				fatBuf[j] = 0;
+          				block_write(1 + i, fatBuf);
+          				root[rootIndex].dataBlockBegin = FAT_EOC;
+          				i = 10;
+         				break;
+        			}
+      			}
 
-      if (count == mounted->dataBlockAmt) {
-        printf("we ran out of spots\n");
-        break;
-      }
-      count++;
-    }
-  }
+      			if (count == mounted->dataBlockAmt) {
+        			printf("we ran out of spots\n");
+        			break;
+      			}
+      			count++;
+    		}
+
+  	}
 
 	block_write(mounted->rootDirectory, root);
-  return 0;
+  	return 0;
 }
 
 int fs_ls(void)
 {
 	if (openFile == 0) {
-    return -1;
-  }
+    		return -1;
+  	}
 
-  printf("FS Ls:\n");
+  	printf("FS Ls:\n");
 
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-  	if ((int)root[i].fileName[0] != 0) {
-    	printf("file: %s, size: %d, data_blk: %d\n", root[i].fileName, root[i].fileSize, root[i].dataBlockBegin);
-    }
-  }
+  		if ((int)root[i].fileName[0] != 0) {
+    			printf("file: %s, size: %d, data_blk: %d\n", root[i].fileName, root[i].fileSize, root[i].dataBlockBegin);
+    		}
+  	}
+
   return 0;
+
 }
 
 
@@ -314,7 +317,7 @@ int fs_lseek(int fd, size_t offset)
 
 	if((int32_t)offset > openFiles[fd].fileSize)
 	{
-		printf("Offset out of file bounds");
+		//printf("Offset out of file bounds");
 		return -1;
 	}
 	openFiles[fd].offset = offset;
@@ -374,7 +377,7 @@ int find_fat_block()
 				return  i * FAT_MAX_SIZE + j;
 			}
 			if (count == mounted->dataBlockAmt) {
-				printf("we ran out of spots\n");
+				//printf("we ran out of spots\n");
 				return -1;
 			}
 		}
@@ -389,14 +392,17 @@ int fs_write(int fd, void *buf, size_t count)
 	if (buf == NULL || openFile == 0) {
 		return -1;
 	}
+	if((int)count == 0 )
+		return 0;
+	
 
 	int rootIndex = -1;
-  for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-    if (!strcmp(root[i].fileName, openFiles[fd].name)) {
-      rootIndex = i;
-      break;
-    }
-  }
+  	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+    		if (!strcmp(root[i].fileName, openFiles[fd].name)) {
+     	 		rootIndex = i;
+      			break;
+    		}
+  	}
 
 	uint16_t * fatBuf = (uint16_t* )malloc(FAT_MAX_SIZE * sizeof(uint16_t));
 	int prevBlock = root[rootIndex].dataBlockBegin;
@@ -407,6 +413,7 @@ int fs_write(int fd, void *buf, size_t count)
 
 	// if there is no data block assigned
 	if (currBlock == -1) {
+
 		currBlock = find_fat_block();
 		// if there are no free fat spots, cannot write
 		if (currBlock == -1) {
@@ -429,7 +436,6 @@ int fs_write(int fd, void *buf, size_t count)
 		}
 		prevBlock = currBlock;
 		block_read(1 + floor(prevBlock/FAT_MAX_SIZE), fatBuf);
-
 	}
 
 	int currOffset = openFiles[fd].offset % BLOCK_MAX_BYTES;
@@ -480,6 +486,7 @@ int fs_write(int fd, void *buf, size_t count)
 
 int fs_read(int fd, void *buf, size_t count)
 {
+
 	if(openFiles == NULL || fd > numberOpenFiles || openFiles[fd].name == NULL)
 		return -1;
 	
@@ -492,15 +499,16 @@ int fs_read(int fd, void *buf, size_t count)
 		if (stopIndex == FAT_EOC)
 			break;
 	}
-
+	
 	int block = 4096;
 	int blockCount = 1 + floor(count/block);   
   	//printf("BLOCK COUNT: %d\n", blockCount);
 	
 	int initOffset = openFiles[fd].offset;
+	//printf("INITIAL OFFSET %d\n", initOffset );
 	
 	int currentBlock = offsetBlock(fd);
-	printf("CurrentBlock: %d\n", currentBlock );
+	//printf("CurrentBlock: %d\n", currentBlock );
 
 	int offsetCount = 1;
 	while(initOffset >= block) 
@@ -508,51 +516,46 @@ int fs_read(int fd, void *buf, size_t count)
 		initOffset -= block;
 		offsetCount++;
 	}
+
 	if( (initOffset + (int)count) > (block * offsetCount))
-	{
+	{	
 		blockCount ++;
 	}
 
-
 	char* bounce = (char*)malloc(block * sizeof(char) * blockCount); //temporary bounce buffer 
-	
-	//printf("Current Block: %d\n", currentBlock);
-	//printf("Offset Location: %d\n", initOffset);
-	
+		
 	int blockNum;			//set block number to the starting block to read
 	int bounceBuf = 0; 		
 	int endLoop = currentBlock + blockCount;
 	int blockMult;				
 
-	for(blockNum = currentBlock; blockNum < endLoop ; blockNum++)
+	for(blockNum = currentBlock; blockNum <= endLoop ; blockNum++)
 	{
-		printf("Index: %d | ", blockNum);
-		printf("END: %d | ", endLoop);
-		printf("Current Block: %d | ", currentBlock);
-		printf("Bounce Buf: %d\n", bounceBuf);
+		//printf("Index: %d | END: %d | Current Block: %d | Bounce Buf: %d\n", blockNum, endLoop, currentBlock, bounceBuf);
 		if(currentBlock == FAT_EOC){
 			break;
 		}
 
-		blockMult = block * bounceBuf; 		//track number of bytes being read
+		blockMult = block * bounceBuf;						//track number of bytes being read
 		block_read(currentBlock + mounted->dataBlock , bounce + blockMult);
-		//printf("::%d \n",fatBuf[currentBlock]);
 		currentBlock = fatBuf[currentBlock]; 
 		bounceBuf++;	
 	}
-
-	//All of blocks within the range are read to bounce buffer
-	//printf("BUFFER: %s\n", bounce);
-	//printf("BLOCK MULT: %d\n", (int)count);
-	memcpy(buf, bounce + initOffset, count);
-
-	//printf("buf: %s\n", (char*)buf);
 	
-	int readLength = strlen(buf);	
-	openFiles[fd].offset += readLength;
+	char* bounce2 = (char*)malloc(block * sizeof(char) * blockCount);
+	char str = '\0';
 
-	//printf("OFFSET: %d\n", initOffset);
+	memcpy(buf, bounce + initOffset, (int)count);
+	memcpy(bounce2, bounce + initOffset, (int)count);
+	strncat(bounce2, &str, 1); //add newline character to ensure strlen reads correct length	
+	
+	int readLength = strlen(bounce2);
+	free(bounce2);
+
+	openFiles[fd].offset += readLength;
+	
 	return readLength;
+
 }
 
 
