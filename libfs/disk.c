@@ -28,6 +28,7 @@ int block_disk_open(const char *diskname)
 {
 	int fd;
 	struct stat st;
+
 	if (!diskname) {
 		block_error("invalid file diskname");
 		return -1;
@@ -37,11 +38,12 @@ int block_disk_open(const char *diskname)
 		block_error("disk already open");
 		return -1;
 	}
-	
+
 	if ((fd = open(diskname, O_RDWR, 0644)) < 0) {
 		perror("open");
 		return -1;
 	}
+
 	if (fstat(fd, &st)) {
 		perror("fstat");
 		return -1;
